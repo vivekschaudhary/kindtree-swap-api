@@ -7,7 +7,9 @@ import { requireUser, type SessionUser } from "../http/session.js";
 import { COMMON_ERRORS, problemResponse } from "../http/schemas.js";
 import type { AppEnv } from "../http/app.js";
 
-export type IdentityDeps = { db: pg.Pool; auth: Pick<Auth, "api"> };
+import type { AreaLabeler } from "../adapters/area-labeler.js";
+
+export type IdentityDeps = { db: pg.Pool; auth: Pick<Auth, "api">; labeler: AreaLabeler };
 
 const Location = z.object({ area_label: z.string(), search_radius_km: z.number().int() });
 
@@ -197,19 +199,8 @@ async function markOnboarded(db: pg.Pool, userId: string) {
   );
 }
 
-/**
- * Coarse area label, a 0.5-degree grid cell (roughly 50 km). Placeholder until a geocoder adapter
- * is chosen; it never reveals the exact point.
- */
-export function areaLabel(lat: number, lng: number): string {
-  const cell = (v: number) => Math.floor(v * 2) / 2;
-  const ns = cell(lat) >= 0 ? "N" : "S";
-  const ew = cell(lng) >= 0 ? "E" : "W";
-  return `Region ${Math.abs(cell(lat)).toFixed(1)}${ns} ${Math.abs(cell(lng)).toFixed(1)}${ew}`;
-}
-
 export function registerIdentityRoutes(app: OpenAPIHono<AppEnv>, deps: IdentityDeps) {
-  const { db, auth } = deps;
+  const { db, auth, labeler } = deps;
 
   app.openapi(getMeRoute, async (c) => {
     const user = await requireUser(auth, c);
@@ -244,7 +235,7 @@ export function registerIdentityRoutes(app: OpenAPIHono<AppEnv>, deps: IdentityD
        on conflict (user_id) do update
               set location = excluded.location, area_label = excluded.area_label,
                   search_radius_km = excluded.search_radius_km, updated_at = now()`,
-      [user.id, lat, lng, areaLabel(lat, lng), body.search_radius_km ?? 25],
+      [user.id, lat, lng, await labeler.label(lat, lng), body.search_radius_km ?? 25],
     );
     await markOnboarded(db, user.id);
     return c.json(toMe(await loadMe(db, user)), 200);

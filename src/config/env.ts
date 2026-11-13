@@ -23,6 +23,7 @@ const schema = z.object({
   MAIL_FROM: z.string().default("Kindtree <no-reply@kindtree.us>"),
   GOOGLE_CLIENT_ID_WEB: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_MAPS_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof schema>;

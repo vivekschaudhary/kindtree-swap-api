@@ -10,6 +10,7 @@ import { startWorker } from "./worker/run.js";
 import { createAuth } from "./auth/auth.js";
 import { createMailer } from "./adapters/mailer.js";
 import { registerAuthRoutes } from "./http/auth-routes.js";
+import { createAreaLabeler } from "./adapters/area-labeler.js";
 
 const env = loadEnv();
 const logger = createLogger(env.LOG_LEVEL);
@@ -52,7 +53,7 @@ if (env.APP_ROLE === "worker") {
       pingDatabase: () => pingDatabase(pool),
       pingObjectStore: () => objectStore.ping(env.S3_BUCKET_PRIVATE),
     },
-    identity: { db: pool, auth },
+    identity: { db: pool, auth, labeler: createAreaLabeler({ googleApiKey: env.GOOGLE_MAPS_API_KEY, logger }) },
   });
   registerDocs(app);
 

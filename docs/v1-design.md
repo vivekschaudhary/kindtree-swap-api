@@ -67,6 +67,7 @@ One Docker image runs in two modes, chosen by `APP_ROLE=api|worker`. Both are lo
 | Realtime         | SSE + Postgres LISTEN/NOTIFY | built-in                                                           | `EventBus`              |
 | Push             | FCM HTTP v1, APNs            | direct                                                             | `Notifier`              |
 | Email            | SMTP                         | any relay; Mailpit locally                                         | `Mailer`                |
+| Area labels      | `AreaLabeler` interface | Google Geocoding API (reverse lookup) when `GOOGLE_MAPS_API_KEY` is set; grid label otherwise | `AreaLabeler`           |
 | Telemetry        | OpenTelemetry, JSON logs     | pino + OTel SDK → Grafana Cloud                                    | env-configured exporter |
 
 ### 3.2 Domains
@@ -128,7 +129,7 @@ App code reads identity only through `AuthService`. All app data lives in the ta
 |---|---|---|
 | `user_id` | uuid PK FK | |
 | `location` | `geography(Point,4326)` | from the client, rounded to about 100 m before storage |
-| `area_label` | text | public coarse label, e.g. "Mission District, San Francisco" |
+| `area_label` | text | public coarse label, e.g. "Mission District, San Francisco". Derived by `AreaLabeler` from the rounded point. Only the label is stored, never Google's raw response. |
 | `search_radius_km` | smallint, default 25, range 1–200 | |
 
 **`user_category_prefs`**: `(user_id, category_id)` PK. Feed filter defaults.
@@ -638,6 +639,8 @@ Each request passes through one middleware chain, so routes never `try/catch`:
 
 - **Authorization:** checked in the service layer on every read and write (owner, participant, block). The database role has only the privileges it needs, with no superuser or DDL at runtime.
 - **Media:** presigned URLs are scoped to one key with a 10-minute expiry. Size and mime are enforced on `complete`.
+- **Third-party location disclosure (Google Geocoding):** when the Google labeler is enabled, the rounded point (3 decimal places, about 111 m) is sent to Google for each location update. Users must be told this in the privacy policy before launch. Google's terms cap caching of geocoding lat/lng at 30 days, so raw responses are never stored. The derived label is stored. Confirm with counsel that a stored locality name is allowed under the current Maps Service Terms. If not, the label is computed on each request instead.
+- **Google key:** restrict it to the Geocoding API and to the server's egress IPs. Keep it out of logs and the client.
 - **Account deletion:** a soft delete hides the profile immediately. Personal data is purged after 30 days. Completed swap history keeps anonymized snapshots for the counterparty.
 - **Secrets:** environment variables only, rotated through the host's secret store.
 
@@ -649,7 +652,7 @@ Each request passes through one middleware chain, so routes never `try/catch`:
 | staging    | Supabase (free or Pro), R2 bucket `kindtree-staging`, 1× api, 1× worker |
 | production | Supabase Pro, R2 `kindtree-prod`, 2× api, 1× worker, any OCI host       |
 
-Environment variables: `APP_ROLE`, `DATABASE_URL`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET_PUBLIC`, `S3_BUCKET_PRIVATE`, `MEDIA_PUBLIC_BASE_URL`, `AUTH_SECRET`, `AUTH_BASE_URL`, `PASSKEY_RP_ID=kindtree.us`, `PASSKEY_ORIGINS`, `GOOGLE_CLIENT_ID_WEB`, `GOOGLE_CLIENT_ID_IOS`, `GOOGLE_CLIENT_ID_ANDROID`, `GOOGLE_CLIENT_SECRET`, `SMTP_URL`, `FCM_SERVICE_ACCOUNT_JSON`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, `SWAP_PENDING_TTL=28d`, `CORS_ORIGINS`.
+Environment variables: `APP_ROLE`, `DATABASE_URL`, `S3_ENDPOINT`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_BUCKET_PUBLIC`, `S3_BUCKET_PRIVATE`, `MEDIA_PUBLIC_BASE_URL`, `AUTH_SECRET`, `AUTH_BASE_URL`, `PASSKEY_RP_ID=kindtree.us`, `PASSKEY_ORIGINS`, `GOOGLE_CLIENT_ID_WEB`, `GOOGLE_CLIENT_ID_IOS`, `GOOGLE_CLIENT_ID_ANDROID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_MAPS_API_KEY`, `SMTP_URL`, `FCM_SERVICE_ACCOUNT_JSON`, `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, `SWAP_PENDING_TTL=28d`, `CORS_ORIGINS`.
 
 **CI.** Every step is an `npm` script, so any CI runner works. v1 uses GitHub Actions (`.github/workflows/ci.yml`).
 
